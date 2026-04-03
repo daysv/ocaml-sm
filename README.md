@@ -2,9 +2,10 @@
 
 纯 OCaml 国密算法库，当前包含：
 
-- `SM2`：密钥、公钥派生、签名验签、加解密、DER/PEM/ASN.1 编解码
+- `SM2`：密钥、公钥派生、签名验签、加解密、密钥交换、DER/PEM/ASN.1 编解码
 - `SM3`：摘要
 - `SM4`：单块、`CBC`、`CTR`、`GCM`，以及流式上下文 API
+- `ZUC-128`：密钥流生成与流加解密
 
 ## 构建与测试
 
@@ -36,6 +37,25 @@ let verified = Sm.Sm2.verify_digest ~pub ~digest ~signature
 ```
 
 ```ocaml
+let alice = Sm.Sm2.private_key_of_scalar priv
+let bob =
+  Sm.Sm2.private_key_of_scalar
+    (Sm.Sm2.scalar_of_hex "0F1E2D3C4B5A69788796A5B4C3D2E1F00123456789ABCDEFFEDCBA9876543210")
+let ra = Sm.Sm2.scalar_of_hex "1234567890ABCDEFFEDCBA098765432112233445566778899AABBCCDDEEFF0011"
+let rb = Sm.Sm2.scalar_of_hex "2234567890ABCDEFFEDCBA098765432112233445566778899AABBCCDDEEFF0011"
+let result =
+  Sm.Sm2.key_exchange
+    ~role:`Initiator
+    ~self_id:"Alice"
+    ~self_static:alice
+    ~self_ephemeral:ra
+    ~peer_id:"Bob"
+    ~peer_static:bob.public_point
+    ~peer_ephemeral:(Sm.Sm2.ephemeral_public_key rb)
+    ~key_length:16
+```
+
+```ocaml
 let sm4_ctr =
   let ctx = Sm.Sm4.Stream.Ctr.init ~key ~iv in
   let part1 = Sm.Sm4.Stream.Ctr.update ctx (Bytes.of_string "hello ") in
@@ -54,4 +74,11 @@ let pem =
     ~iv
     ~iterations:4096
     key
+```
+
+```ocaml
+let key = Bytes.of_string "\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff"
+let iv = Bytes.of_string "\xff\xee\xdd\xcc\xbb\xaa\x99\x88\x77\x66\x55\x44\x33\x22\x11\x00"
+let z = Sm.Zuc.init ~key ~iv
+let cipher = Sm.Zuc.crypt z (Bytes.of_string "hello zuc")
 ```

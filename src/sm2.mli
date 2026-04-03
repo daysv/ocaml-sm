@@ -4,6 +4,12 @@ type private_key = {
   private_scalar : scalar;
   public_point : point;
 }
+type key_exchange_role = [ `Initiator | `Responder ]
+type key_exchange_result = {
+  shared_key : string;
+  confirmation_in : string;
+  confirmation_out : string;
+}
 
 val scalar_of_hex : string -> scalar
 val scalar_to_hex : scalar -> string
@@ -22,6 +28,18 @@ val encrypt : k:scalar -> pub:point -> string -> string
 val decrypt : priv:scalar -> string -> string option
 
 val private_key_of_scalar : scalar -> private_key
+val ephemeral_public_key : scalar -> point
+
+val key_exchange :
+  role:key_exchange_role ->
+  self_id:string ->
+  self_static:private_key ->
+  self_ephemeral:scalar ->
+  peer_id:string ->
+  peer_static:point ->
+  peer_ephemeral:point ->
+  key_length:int ->
+  key_exchange_result option
 
 val encode_signature_der : scalar * scalar -> string
 val decode_signature_der : string -> (scalar * scalar) option

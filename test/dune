@@ -1,11 +1,19 @@
 (test
  (name test_sm3)
+ (modules test_sm3)
  (libraries alcotest sm))
 
 (test
  (name test_sm4)
+ (modules test_sm4)
  (libraries alcotest sm))
 
 (test
  (name test_sm2)
+ (modules test_sm2)
+ (libraries alcotest sm))
+
+(test
+ (name test_zuc)
+ (modules test_zuc)
  (libraries alcotest sm))

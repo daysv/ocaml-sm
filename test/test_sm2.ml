@@ -163,6 +163,41 @@ let test_top_module () =
     "d5548c7825cbb56150a3506cd57464af8a1ae0519dfaf3c58221dc810caf28dd"
     x
 
+let test_key_exchange () =
+  let da = Sm2.private_key_of_scalar priv in
+  let db = Sm2.private_key_of_scalar (Sm2.scalar_of_hex "58A864B8E0D42385F8BC9354F9963F492019A6B83A6939A33E9618349969F6AB") in
+  let ra = Sm2.scalar_of_hex "234567890ABCDEFFEDCBA098765432112233445566778899AABBCCDDEEFF0012" in
+  let rb = Sm2.scalar_of_hex "334567890ABCDEFFEDCBA098765432112233445566778899AABBCCDDEEFF0013" in
+  let ra_pub = Sm2.ephemeral_public_key ra in
+  let rb_pub = Sm2.ephemeral_public_key rb in
+  let a =
+    Option.get
+      (Sm2.key_exchange
+         ~role:`Initiator
+         ~self_id:"Alice"
+         ~self_static:da
+         ~self_ephemeral:ra
+         ~peer_id:"Bob"
+         ~peer_static:db.public_point
+         ~peer_ephemeral:rb_pub
+         ~key_length:16)
+  in
+  let b =
+    Option.get
+      (Sm2.key_exchange
+         ~role:`Responder
+         ~self_id:"Bob"
+         ~self_static:db
+         ~self_ephemeral:rb
+         ~peer_id:"Alice"
+         ~peer_static:da.public_point
+         ~peer_ephemeral:ra_pub
+         ~key_length:16)
+  in
+  Alcotest.(check string) "shared key" a.shared_key b.shared_key;
+  Alcotest.(check string) "peer confirmation" a.confirmation_in b.confirmation_out;
+  Alcotest.(check string) "self confirmation" a.confirmation_out b.confirmation_in
+
 let () =
   Alcotest.run "sm2"
     [
@@ -174,5 +209,6 @@ let () =
            Alcotest.test_case "der pem compat" `Quick test_der_pem_compat;
            Alcotest.test_case "encrypted private key pem" `Quick test_encrypted_private_key_pem;
            Alcotest.test_case "top module" `Quick test_top_module;
+           Alcotest.test_case "key exchange" `Quick test_key_exchange;
          ]);
     ]

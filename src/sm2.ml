@@ -1,6 +1,12 @@
 type scalar = U256.t
 type point = Infinity | Point of U256.t * U256.t
 type private_key = { private_scalar : scalar; public_point : point }
+type key_exchange_role = [ `Initiator | `Responder ]
+type key_exchange_result = {
+  shared_key : string;
+  confirmation_in : string;
+  confirmation_out : string;
+}
 
 type jacobian = { x : U256.t; y : U256.t; z : U256.t; inf : bool }
 
@@ -120,6 +126,7 @@ let scalar_mult k point =
 
 let derive_public_key d = scalar_mult d g
 let private_key_of_scalar private_scalar = { private_scalar; public_point = derive_public_key private_scalar }
+let ephemeral_public_key = derive_public_key
 
 let point_add p1 p2 =
   match p1 with
@@ -141,6 +148,10 @@ let parse_point bytes off =
   let x = Bytes.sub bytes (off + 1) 32 |> U256.of_bytes_be in
   let y = Bytes.sub bytes (off + 33) 32 |> U256.of_bytes_be in
   Point (x, y)
+
+let point_to_raw = function
+  | Infinity -> invalid_arg "Sm2.point_to_raw"
+  | Point (x, y) -> (Bytes.unsafe_to_string (U256.to_bytes_be x), Bytes.unsafe_to_string (U256.to_bytes_be y))
 
 let sm3_bytes bytes = Sm3.digest_bytes bytes
 
@@ -277,6 +288,61 @@ let decrypt ~priv cipher =
               (Bytes.unsafe_to_string (U256.to_bytes_be x2) ^ msg ^ Bytes.unsafe_to_string (U256.to_bytes_be y2))
           in
           if String.equal u c3 then Some msg else None
+
+let x_bar x =
+  let b = U256.to_bytes_be x in
+  for i = 0 to 15 do
+    Bytes.set b i '\000'
+  done;
+  Bytes.set b 16 (Char.chr ((Char.code (Bytes.get b 16) land 0x7f) lor 0x80));
+  U256.of_bytes_be b
+
+let key_exchange ~role ~self_id ~self_static ~self_ephemeral ~peer_id ~peer_static ~peer_ephemeral ~key_length =
+  try
+    let ra = derive_public_key self_ephemeral in
+    let x1 =
+      match ra with
+      | Infinity -> raise Exit
+      | Point (x, _) -> x
+    in
+    let x1b = x_bar x1 in
+    let ta = mod_add self_static.private_scalar (mod_mul x1b self_ephemeral n) n in
+    let x2b =
+      match peer_ephemeral with
+      | Infinity -> raise Exit
+      | Point (x, _) -> x_bar x
+    in
+    let mixed =
+      match point_add peer_static (scalar_mult x2b peer_ephemeral) with
+      | Infinity -> raise Exit
+      | p -> p
+    in
+    let u =
+      match scalar_mult ta mixed with
+      | Infinity -> raise Exit
+      | p -> p
+    in
+    let xu, yu = point_to_raw u in
+    let za_self = za ~id:self_id self_static.public_point in
+    let za_peer = za ~id:peer_id peer_static in
+    let za1, za2, ra_local, rb_peer =
+      match role with
+      | `Initiator -> (za_self, za_peer, ra, peer_ephemeral)
+      | `Responder -> (za_peer, za_self, peer_ephemeral, ra)
+    in
+    let k = kdf (xu ^ yu ^ za1 ^ za2) key_length in
+    let x1r, y1r = point_to_raw ra_local in
+    let x2r, y2r = point_to_raw rb_peer in
+    let inner = Sm3.digest_string (xu ^ za1 ^ za2 ^ x1r ^ y1r ^ x2r ^ y2r) in
+    let s1 = Sm3.digest_string ("\x02" ^ yu ^ inner) in
+    let s2 = Sm3.digest_string ("\x03" ^ yu ^ inner) in
+    let confirmation_in, confirmation_out =
+      match role with
+      | `Initiator -> (s1, s2)
+      | `Responder -> (s2, s1)
+    in
+    Some { shared_key = k; confirmation_in; confirmation_out }
+  with Exit -> None
 
 module Der = struct
   let oid_ec_public_key = "\x2a\x86\x48\xce\x3d\x02\x01"
