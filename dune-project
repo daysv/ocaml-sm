@@ -17,11 +17,12 @@
  (homepage "https://github.com/daysv/ocaml-sm")
  (bug_reports "https://github.com/daysv/ocaml-sm/issues")
  (depends
-  (dune
-   (>= 3.22))
   (ocaml
    (>= 4.14.2))
-  (alcotest :with-test)))
+  (alcotest
+   (and
+    :with-test
+    (< 1.8.0)))))
 
 (source
  (github daysv/ocaml-sm))
