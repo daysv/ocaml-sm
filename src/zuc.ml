@@ -59,12 +59,15 @@ let add31 a b =
   let open Int64 in
   let x = add (of_int32 a) (of_int32 b) in
   let x = add (logand x 0x7fff_ffffL) (shift_right_logical x 31) in
-  Int32.of_int (to_int (logand x 0x7fff_ffffL))
+  to_int32 (logand x 0x7fff_ffffL)
 
 let mul31 x n =
-  let x = Int32.to_int x in
-  let v = ((x lsl n) lor (x lsr (31 - n))) land 0x7fff_ffff in
-  Int32.of_int v
+  let open Int64 in
+  let x64 = of_int32 x in
+  let shifted = shift_left x64 n in
+  let rotated = logor shifted (shift_right_logical x64 (31 - n)) in
+  let masked = logand rotated 0x7fff_ffffL in
+  to_int32 masked
 
 let bit_reorg s =
   let x0 =
@@ -90,15 +93,16 @@ let bit_reorg s =
   (x0, x1, x2, x3)
 
 let sbox_word x =
-  let b3 = s0.(Int32.to_int (Int32.shift_right_logical x 24) land 0xff) in
-  let b2 = s1.(Int32.to_int (Int32.shift_right_logical x 16) land 0xff) in
-  let b1 = s0.(Int32.to_int (Int32.shift_right_logical x 8) land 0xff) in
-  let b0 = s1.(Int32.to_int x land 0xff) in
-  Int32.logor
-    (Int32.shift_left (Int32.of_int b3) 24)
-    (Int32.logor
-       (Int32.shift_left (Int32.of_int b2) 16)
-       (Int32.logor (Int32.shift_left (Int32.of_int b1) 8) (Int32.of_int b0)))
+  let open Int32 in
+  let b3 = s0.(to_int (logand (shift_right_logical x 24) 0xffl)) in
+  let b2 = s1.(to_int (logand (shift_right_logical x 16) 0xffl)) in
+  let b1 = s0.(to_int (logand (shift_right_logical x 8) 0xffl)) in
+  let b0 = s1.(to_int (logand x 0xffl)) in
+  logor
+    (shift_left (of_int b3) 24)
+    (logor
+       (shift_left (of_int b2) 16)
+       (logor (shift_left (of_int b1) 8) (of_int b0)))
 
 let l1 x = Int32.logxor x (Int32.logxor (rotl32 x 2) (Int32.logxor (rotl32 x 10) (Int32.logxor (rotl32 x 18) (rotl32 x 24))))
 let l2 x = Int32.logxor x (Int32.logxor (rotl32 x 8) (Int32.logxor (rotl32 x 14) (Int32.logxor (rotl32 x 22) (rotl32 x 30))))
