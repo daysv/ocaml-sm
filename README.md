@@ -1,5 +1,8 @@
 # sm
 
+[![OCaml Version](https://img.shields.io/badge/OCaml-5.4.1%2B-blue.svg?logo=ocaml)](https://ocaml.org)
+[![OCaml CI](https://github.com/daysv/ocaml-sm/actions/workflows/test.yml/badge.svg)](https://github.com/daysv/ocaml-sm/actions) 
+ 
 纯 OCaml 国密算法库，当前包含：
 
 - `SM2`：密钥、公钥派生、签名验签、加解密、密钥交换、DER/PEM/ASN.1 编解码
