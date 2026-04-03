@@ -1,0 +1,27 @@
+0.1.0
+=====
+
+Initial release. Pure OCaml implementation of Chinese national cryptographic
+algorithms:
+
+* SM2: Public key cryptographic algorithm
+  - Key derivation (public/private key generation)
+  - Signature and verification (sign_digest, verify_digest)
+  - Encryption and decryption
+  - Key exchange protocol
+  - DER/PEM/ASN.1 encoding and decoding
+  - Encrypted private key PEM format support
+
+* SM3: Hash algorithm
+  - digest and digest_hex functions for string and hex input
+
+* SM4: Block cipher
+  - Single-block encryption/decryption
+  - CBC mode with PKCS7 padding
+  - CTR mode
+  - GCM mode
+  - Streaming context API (Ctr module for incremental encryption)
+
+* ZUC-128: Stream cipher
+  - Keystream generation
+  - Stream encryption/decryption
