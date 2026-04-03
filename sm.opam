@@ -29,4 +29,5 @@ build: [
     "@doc" {with-doc}
   ]
 ]
+dev-repo: "git+https://github.com/daysv/ocaml-sm.git"
 x-maintenance-intent: ["(latest)"]

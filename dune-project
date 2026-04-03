@@ -20,3 +20,6 @@
   (dune
    (>= 3.22))
   (alcotest :with-test)))
+
+(source
+ (github daysv/ocaml-sm))
