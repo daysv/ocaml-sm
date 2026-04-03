@@ -6,9 +6,10 @@
 
 (package
  (name sm)
- (synopsis "纯 OCaml 国密算法库 (SM2/SM3/SM4/ZUC)")
+ (synopsis
+  "Pure OCaml National Cryptographic Algorithm Library (SM2/SM3/SM4/ZUC)")
  (description
-  "纯 OCaml 国密算法库，支持 SM2（密钥派生、签名验签、加解密、密钥交换、DER/PEM/ASN.1 编解码）、SM3（摘要）、SM4（单块、CBC、CTR、GCM、流式上下文）以及 ZUC-128（密钥流生成与流加解密）")
+  "Pure OCaml National Cryptographic Algorithm Library, supporting SM2 (key derivation, signature generation and verification, encryption and decryption, key exchange, DER/PEM/ASN.1 encoding/decoding), SM3 (digest), SM4 (single-block, CBC, CTR, GCM, streaming context), and ZUC-128 (keystream generation and stream encryption/decryption).")
  (version 0.1.0)
  (license MIT)
  (authors "days_v")

@@ -1,3 +1,4 @@
 (library
  (name sm)
+ (public_name sm)
  (wrapped false))
