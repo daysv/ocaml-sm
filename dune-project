@@ -19,6 +19,8 @@
  (depends
   (dune
    (>= 3.22))
+  (ocaml
+   (>= 4.14.2))
   (alcotest :with-test)))
 
 (source
