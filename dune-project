@@ -7,9 +7,9 @@
 (package
  (name sm)
  (synopsis
-  "Pure OCaml National Cryptographic Algorithm Library (SM2/SM3/SM4/ZUC)")
+  "Pure OCaml Chinese National Cryptographic Algorithm Library (SM2/SM3/SM4/ZUC)")
  (description
-  "Pure OCaml National Cryptographic Algorithm Library, supporting SM2 (key derivation, signature generation and verification, encryption and decryption, key exchange, DER/PEM/ASN.1 encoding/decoding), SM3 (digest), SM4 (single-block, CBC, CTR, GCM, streaming context), and ZUC-128 (keystream generation and stream encryption/decryption).")
+  "Pure OCaml Chinese National Cryptographic Algorithm Library, supporting SM2 (key derivation, signature generation and verification, encryption and decryption, key exchange, DER/PEM/ASN.1 encoding/decoding), SM3 (digest), SM4 (single-block, CBC, CTR, GCM, streaming context), and ZUC-128 (keystream generation and stream encryption/decryption).")
  (version 0.1.0)
  (license MIT)
  (authors "days_v")
