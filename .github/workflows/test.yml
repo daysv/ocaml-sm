@@ -15,6 +15,7 @@ jobs:
         ocaml-compiler: 
           - 4.14.2 
           - 5.4.1
+        arch: [x86_64, i686]
 
     runs-on: ${{ matrix.os }}
 
@@ -25,8 +26,15 @@ jobs:
       - name: Setup OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v3
         with:
-          ocaml-compiler: ${{ matrix.ocaml-compiler }}
+          ocaml-compiler: ${{ matrix.arch == 'i686' && format('{0}+msvc32', matrix.ocaml-compiler) || matrix.ocaml-compiler }}
           opam-disable-cache: false
+
+      - name: Install system dependencies (32-bit)
+        if: matrix.arch == 'i686'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib libev-dev:i386
 
       - name: Install dependencies
         run: |
