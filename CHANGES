@@ -1,3 +1,13 @@
+0.1.1
+=====
+
+* SM2: Performance optimization
+  - Refactor U256 type to use int array for better performance
+  - Optimize arithmetic operations
+
+* ZUC: Code consistency improvements
+  - Optimize add31 and sbox_word functions to use Int32
+
 0.1.0
 =====
 
