@@ -10,7 +10,7 @@
   "Pure OCaml Chinese National Cryptographic Algorithm Library (SM2/SM3/SM4/ZUC)")
  (description
   "Pure OCaml Chinese National Cryptographic Algorithm Library, supporting SM2 (key derivation, signature generation and verification, encryption and decryption, key exchange, DER/PEM/ASN.1 encoding/decoding), SM3 (digest), SM4 (single-block, CBC, CTR, GCM, streaming context), and ZUC-128 (keystream generation and stream encryption/decryption).")
- (version 0.1.0)
+ (version 0.1.1)
  (license MIT)
  (authors "days_v")
  (maintainers "days_v <days_v@qq.com>")
