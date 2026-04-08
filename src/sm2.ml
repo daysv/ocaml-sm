@@ -19,6 +19,7 @@ let gy = U256.of_hex "BC3736A2F4F6779C59BDCEE36B692153D0A9877CC62A474002DF32E521
 let g = Point (gx, gy)
 let p_minus_2 = U256.sub_small p 2
 let n_minus_2 = U256.sub_small n 2
+let three = U256.of_int 3
 
 let scalar_of_hex = U256.of_hex
 let scalar_to_hex = U256.to_hex
@@ -63,7 +64,6 @@ let point_double j =
     let x_minus_delta = mod_sub j.x delta p in
     let x_plus_delta = mod_add j.x delta p in
     let alpha =
-      let three = U256.of_int 3 in
       mod_mul three (mod_mul x_minus_delta x_plus_delta p) p
     in
     let alpha2 = mod_sqr alpha p in
@@ -88,6 +88,31 @@ let point_double j =
     in
     let y3 = mod_sub (mod_mul alpha four_beta_minus_x3 p) eight_gamma2 p in
     { x = x3; y = y3; z = z3; inf = false }
+
+let point_add_jacobian p1 p2 =
+  if p1.inf then p2
+  else if p2.inf then p1
+  else
+    let z1z1 = mod_sqr p1.z p in
+    let z2z2 = mod_sqr p2.z p in
+    let u1 = mod_mul p1.x z2z2 p in
+    let u2 = mod_mul p2.x z1z1 p in
+    let z1_cubed = mod_mul p1.z z1z1 p in
+    let z2_cubed = mod_mul p2.z z2z2 p in
+    let s1 = mod_mul p1.y z2_cubed p in
+    let s2 = mod_mul p2.y z1_cubed p in
+    if U256.equal u1 u2 then
+      if U256.equal s1 s2 then point_double p1 else point_at_infinity
+    else
+      let h = mod_sub u2 u1 p in
+      let r = mod_sub s2 s1 p in
+      let hh = mod_sqr h p in
+      let hhh = mod_mul h hh p in
+      let u1hh = mod_mul u1 hh p in
+      let x3 = mod_sub (mod_sub (mod_sqr r p) hhh p) (mod_add u1hh u1hh p) p in
+      let y3 = mod_sub (mod_mul r (mod_sub u1hh x3 p) p) (mod_mul s1 hhh p) p in
+      let z3 = mod_mul h (mod_mul p1.z p2.z p) p in
+      { x = x3; y = y3; z = z3; inf = false }
 
 let point_add_mixed j = function
   | Infinity -> j
@@ -116,15 +141,51 @@ let point_add_mixed j = function
           let z3 = mod_sub (mod_sub (mod_sqr (mod_add j.z h p) p) z1z1 p) hh p in
           { x = x3; y = y3; z = z3; inf = false }
 
-let scalar_mult k point =
+let select_jacobian table idx =
+  let selected = ref point_at_infinity in
+  for i = 0 to Array.length table - 1 do
+    if i = idx then selected := table.(i)
+  done;
+  !selected
+
+let precompute_window point =
+  let table = Array.make 16 point_at_infinity in
+  table.(1) <- jacobian_of_point point;
+  for i = 2 to 15 do
+    table.(i) <- point_add_jacobian table.(i - 1) table.(1)
+  done;
+  table
+
+let nibble_of_scalar k shift =
+  let acc = ref 0 in
+  for bit = 0 to 3 do
+    if U256.get_bit k (shift + bit) then acc := !acc lor (1 lsl bit)
+  done;
+  !acc
+
+let scalar_mult_with_table table k =
   let acc = ref point_at_infinity in
-  for bit = 255 downto 0 do
-    acc := point_double !acc;
-    if U256.get_bit k bit then acc := point_add_mixed !acc point
+  let first = ref true in
+  for window = 63 downto 0 do
+    if !first then first := false
+    else (
+      acc := point_double !acc;
+      acc := point_double !acc;
+      acc := point_double !acc;
+      acc := point_double !acc
+    );
+    let nibble = nibble_of_scalar k (window * 4) in
+    if nibble <> 0 then acc := point_add_jacobian !acc (select_jacobian table nibble)
   done;
   point_of_jacobian !acc
 
-let derive_public_key d = scalar_mult d g
+let g_table = precompute_window g
+
+let scalar_mult_g k = scalar_mult_with_table g_table k
+
+let scalar_mult k point = scalar_mult_with_table (precompute_window point) k
+
+let derive_public_key d = scalar_mult_g d
 let private_key_of_scalar private_scalar = { private_scalar; public_point = derive_public_key private_scalar }
 let ephemeral_public_key = derive_public_key
 
@@ -190,7 +251,7 @@ let sign_digest ~k ~priv ~digest =
   ensure_valid_nonce k;
   let e = digest_to_scalar digest in
   let x1, _ =
-    match scalar_mult k g with
+    match scalar_mult_g k with
     | Infinity -> invalid_arg "Sm2.sign_digest"
     | Point (x, y) -> (x, y)
   in
@@ -213,7 +274,7 @@ let verify_digest ~pub ~digest ~signature =
     let t = mod_add r s n in
     if U256.is_zero t then false
     else
-      let sg = scalar_mult s g in
+      let sg = scalar_mult_g s in
       let tp = scalar_mult t pub in
       match point_add sg tp with
       | Infinity -> false
@@ -252,7 +313,7 @@ let xor_strings a b =
 
 let encrypt ~k ~pub msg =
   ensure_valid_nonce k;
-  let c1 = scalar_mult k g in
+  let c1 = scalar_mult_g k in
   let x2, y2 =
     match scalar_mult k pub with
     | Infinity -> invalid_arg "Sm2.encrypt"
