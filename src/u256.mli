@@ -11,6 +11,7 @@ val compare : t -> t -> int
 val equal : t -> t -> bool
 val is_zero : t -> bool
 val get_bit : t -> int -> bool
+val get_nibble : t -> int -> int
 val add_mod : t -> t -> t -> t
 val sub_mod : t -> t -> t -> t
 val mul_mod : t -> t -> t -> t

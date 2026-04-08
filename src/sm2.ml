@@ -17,6 +17,10 @@ let n = U256.of_hex "FFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFF7203DF6B21C6052B53BBF40939D
 let gx = U256.of_hex "32C4AE2C1F1981195F9904466A39C9948FE30BBFF2660BE1715A4589334C74C7"
 let gy = U256.of_hex "BC3736A2F4F6779C59BDCEE36B692153D0A9877CC62A474002DF32E52139F0A0"
 let g = Point (gx, gy)
+let a_bytes = U256.to_bytes_be a
+let b_bytes = U256.to_bytes_be b
+let gx_bytes = U256.to_bytes_be gx
+let gy_bytes = U256.to_bytes_be gy
 let p_minus_2 = U256.sub_small p 2
 let n_minus_2 = U256.sub_small n 2
 let three = U256.of_int 3
@@ -142,11 +146,7 @@ let point_add_mixed j = function
           { x = x3; y = y3; z = z3; inf = false }
 
 let select_jacobian table idx =
-  let selected = ref point_at_infinity in
-  for i = 0 to Array.length table - 1 do
-    if i = idx then selected := table.(i)
-  done;
-  !selected
+  Array.unsafe_get table idx
 
 let precompute_window point =
   let table = Array.make 16 point_at_infinity in
@@ -156,34 +156,46 @@ let precompute_window point =
   done;
   table
 
-let nibble_of_scalar k shift =
-  let acc = ref 0 in
-  for bit = 0 to 3 do
-    if U256.get_bit k (shift + bit) then acc := !acc lor (1 lsl bit)
-  done;
-  !acc
+let window_of_scalar k shift width =
+  if width = 4 then U256.get_nibble k shift
+  else
+    let acc = ref 0 in
+    for bit = 0 to width - 1 do
+      let pos = shift + bit in
+      if pos < 256 && U256.get_bit k pos then acc := !acc lor (1 lsl bit)
+    done;
+    !acc
 
-let scalar_mult_with_table table k =
+let scalar_mult_with_table ~width table k =
   let acc = ref point_at_infinity in
   let first = ref true in
-  for window = 63 downto 0 do
+  let windows = (256 + width - 1) / width in
+  for window = windows - 1 downto 0 do
     if !first then first := false
     else (
-      acc := point_double !acc;
-      acc := point_double !acc;
-      acc := point_double !acc;
-      acc := point_double !acc
+      for _ = 1 to width do
+        acc := point_double !acc
+      done
     );
-    let nibble = nibble_of_scalar k (window * 4) in
-    if nibble <> 0 then acc := point_add_jacobian !acc (select_jacobian table nibble)
+    let digit = window_of_scalar k (window * width) width in
+    if digit <> 0 then acc := point_add_jacobian !acc (select_jacobian table digit)
   done;
   point_of_jacobian !acc
 
-let g_table = precompute_window g
+let precompute_window_width width point =
+  let size = 1 lsl width in
+  let table = Array.make size point_at_infinity in
+  table.(1) <- jacobian_of_point point;
+  for i = 2 to size - 1 do
+    table.(i) <- point_add_jacobian table.(i - 1) table.(1)
+  done;
+  table
 
-let scalar_mult_g k = scalar_mult_with_table g_table k
+let g_table = precompute_window_width 5 g
 
-let scalar_mult k point = scalar_mult_with_table (precompute_window point) k
+let scalar_mult_g k = scalar_mult_with_table ~width:5 g_table k
+
+let scalar_mult k point = scalar_mult_with_table ~width:4 (precompute_window point) k
 
 let derive_public_key d = scalar_mult_g d
 let private_key_of_scalar private_scalar = { private_scalar; public_point = derive_public_key private_scalar }
@@ -196,12 +208,20 @@ let point_add p1 p2 =
       let j = jacobian_of_point p1 in
       point_of_jacobian (point_add_mixed j p2)
 
+let point_to_bytes = function
+  | Infinity -> invalid_arg "Sm2.point_to_bytes"
+  | Point (x, y) -> (U256.to_bytes_be x, U256.to_bytes_be y)
+
 let encode_point = function
   | Infinity -> invalid_arg "Sm2.encode_point"
   | Point (x, y) ->
       let xb = U256.to_bytes_be x in
       let yb = U256.to_bytes_be y in
-      Bytes.unsafe_to_string (Bytes.concat Bytes.empty [Bytes.of_string "\x04"; xb; yb])
+      let out = Bytes.create 65 in
+      Bytes.set out 0 '\x04';
+      Bytes.blit xb 0 out 1 32;
+      Bytes.blit yb 0 out 33 32;
+      Bytes.unsafe_to_string out
 
 let parse_point bytes off =
   if Bytes.length bytes - off < 65 then invalid_arg "Sm2.parse_point";
@@ -217,24 +237,20 @@ let point_to_raw = function
 let sm3_bytes bytes = Sm3.digest_bytes bytes
 
 let za ~id pub =
-  let entl = String.length id * 8 in
-  let entl_bytes = Bytes.make 2 '\000' in
-  Bytes.set entl_bytes 0 (Char.chr ((entl lsr 8) land 0xff));
-  Bytes.set entl_bytes 1 (Char.chr (entl land 0xff));
-  let px, py = point_to_hex pub in
-  let data =
-    Bytes.concat Bytes.empty
-      [
-        entl_bytes;
-        Bytes.of_string id;
-        U256.to_bytes_be a;
-        U256.to_bytes_be b;
-        U256.to_bytes_be gx;
-        U256.to_bytes_be gy;
-        U256.to_bytes_be (U256.of_hex px);
-        U256.to_bytes_be (U256.of_hex py);
-      ]
-  in
+  let id_len = String.length id in
+  let data = Bytes.create (2 + id_len + 192) in
+  let entl = id_len * 8 in
+  Bytes.set data 0 (Char.chr ((entl lsr 8) land 0xff));
+  Bytes.set data 1 (Char.chr (entl land 0xff));
+  Bytes.blit_string id 0 data 2 id_len;
+  let off = 2 + id_len in
+  Bytes.blit a_bytes 0 data off 32;
+  Bytes.blit b_bytes 0 data (off + 32) 32;
+  Bytes.blit gx_bytes 0 data (off + 64) 32;
+  Bytes.blit gy_bytes 0 data (off + 96) 32;
+  let px, py = point_to_bytes pub in
+  Bytes.blit px 0 data (off + 128) 32;
+  Bytes.blit py 0 data (off + 160) 32;
   sm3_bytes data
 
 let digest_for_sign ~id pub msg =
@@ -285,13 +301,15 @@ let verify_digest ~pub ~digest ~signature =
 let kdf z klen =
   let blocks = if klen = 0 then 0 else (klen + 31) / 32 in
   let out = Bytes.create klen in
+  let z_len = String.length z in
   for ct = 1 to blocks do
-    let ctr = Bytes.make 4 '\000' in
-    Bytes.set ctr 0 (Char.chr ((ct lsr 24) land 0xff));
-    Bytes.set ctr 1 (Char.chr ((ct lsr 16) land 0xff));
-    Bytes.set ctr 2 (Char.chr ((ct lsr 8) land 0xff));
-    Bytes.set ctr 3 (Char.chr (ct land 0xff));
-    let block = Sm3.digest_string (z ^ Bytes.unsafe_to_string ctr) in
+    let block_bytes = Bytes.create (z_len + 4) in
+    Bytes.blit_string z 0 block_bytes 0 z_len;
+    Bytes.set block_bytes z_len (Char.chr ((ct lsr 24) land 0xff));
+    Bytes.set block_bytes (z_len + 1) (Char.chr ((ct lsr 16) land 0xff));
+    Bytes.set block_bytes (z_len + 2) (Char.chr ((ct lsr 8) land 0xff));
+    Bytes.set block_bytes (z_len + 3) (Char.chr (ct land 0xff));
+    let block = Sm3.digest_bytes block_bytes in
     let take = min 32 (klen - ((ct - 1) * 32)) in
     Bytes.blit_string block 0 out ((ct - 1) * 32) take
   done;
@@ -319,14 +337,13 @@ let encrypt ~k ~pub msg =
     | Infinity -> invalid_arg "Sm2.encrypt"
     | Point (x, y) -> (x, y)
   in
-  let z = Bytes.unsafe_to_string (Bytes.concat Bytes.empty [U256.to_bytes_be x2; U256.to_bytes_be y2]) in
+  let xb = U256.to_bytes_be x2 in
+  let yb = U256.to_bytes_be y2 in
+  let z = Bytes.unsafe_to_string (Bytes.cat xb yb) in
   let t = kdf z (String.length msg) in
   if all_zero t then invalid_arg "Sm2.encrypt kdf returned zero";
   let c2 = xor_strings msg t in
-  let c3 =
-    Sm3.digest_string
-      (Bytes.unsafe_to_string (U256.to_bytes_be x2) ^ msg ^ Bytes.unsafe_to_string (U256.to_bytes_be y2))
-  in
+  let c3 = Sm3.digest_string (Bytes.unsafe_to_string xb ^ msg ^ Bytes.unsafe_to_string yb) in
   encode_point c1 ^ c3 ^ c2
 
 let decrypt ~priv cipher =
@@ -339,15 +356,14 @@ let decrypt ~priv cipher =
     match scalar_mult priv c1 with
     | Infinity -> None
     | Point (x2, y2) ->
-        let z = Bytes.unsafe_to_string (Bytes.concat Bytes.empty [U256.to_bytes_be x2; U256.to_bytes_be y2]) in
+        let xb = U256.to_bytes_be x2 in
+        let yb = U256.to_bytes_be y2 in
+        let z = Bytes.unsafe_to_string (Bytes.cat xb yb) in
         let t = kdf z (String.length c2) in
         if all_zero t then None
         else
           let msg = xor_strings c2 t in
-          let u =
-            Sm3.digest_string
-              (Bytes.unsafe_to_string (U256.to_bytes_be x2) ^ msg ^ Bytes.unsafe_to_string (U256.to_bytes_be y2))
-          in
+          let u = Sm3.digest_string (Bytes.unsafe_to_string xb ^ msg ^ Bytes.unsafe_to_string yb) in
           if String.equal u c3 then Some msg else None
 
 let x_bar x =
