@@ -14,6 +14,7 @@ val get_bit : t -> int -> bool
 val get_nibble : t -> int -> int
 val add_mod : t -> t -> t -> t
 val sub_mod : t -> t -> t -> t
+val double_mod : t -> t -> t
 val mul_mod : t -> t -> t -> t
 val square_mod : t -> t -> t
 val pow_mod : t -> t -> t -> t

@@ -42,6 +42,11 @@ let mod_mul = U256.mul_mod
 let mod_sqr = U256.square_mod
 let mod_inv_p x = U256.pow_mod x p_minus_2 p
 let mod_inv_n x = U256.pow_mod x n_minus_2 n
+let double_mod = U256.double_mod
+
+let triple_mod x modulus =
+  let x2 = mod_add x x modulus in
+  mod_add x2 x modulus
 
 let point_at_infinity = { x = U256.zero; y = U256.one; z = U256.zero; inf = true }
 
@@ -67,9 +72,7 @@ let point_double j =
     let beta = mod_mul j.x gamma p in
     let x_minus_delta = mod_sub j.x delta p in
     let x_plus_delta = mod_add j.x delta p in
-    let alpha =
-      mod_mul three (mod_mul x_minus_delta x_plus_delta p) p
-    in
+    let alpha = mod_mul three (mod_mul x_minus_delta x_plus_delta p) p in
     let alpha2 = mod_sqr alpha p in
     let eight_beta =
       let two_beta = mod_add beta beta p in
@@ -115,7 +118,8 @@ let point_add_jacobian p1 p2 =
       let u1hh = mod_mul u1 hh p in
       let x3 = mod_sub (mod_sub (mod_sqr r p) hhh p) (mod_add u1hh u1hh p) p in
       let y3 = mod_sub (mod_mul r (mod_sub u1hh x3 p) p) (mod_mul s1 hhh p) p in
-      let z3 = mod_mul h (mod_mul p1.z p2.z p) p in
+      let z1z2 = mod_mul p1.z p2.z p in
+      let z3 = mod_mul h z1z2 p in
       { x = x3; y = y3; z = z3; inf = false }
 
 let point_add_mixed j = function
@@ -195,7 +199,7 @@ let g_table = precompute_window_width 5 g
 
 let scalar_mult_g k = scalar_mult_with_table ~width:5 g_table k
 
-let scalar_mult k point = scalar_mult_with_table ~width:4 (precompute_window point) k
+let scalar_mult k point = scalar_mult_with_table ~width:5 (precompute_window_width 5 point) k
 
 let derive_public_key d = scalar_mult_g d
 let private_key_of_scalar private_scalar = { private_scalar; public_point = derive_public_key private_scalar }
