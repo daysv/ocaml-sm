@@ -86,65 +86,60 @@ let set_u64_be bytes off x =
 let compress state block off =
   let w = state.w in
   let w1 = state.w1 in
-  (* Reset arrays to zero - necessary because arrays are reused *)
-  for i = 0 to 67 do w.(i) <- 0l done;
-  for i = 0 to 63 do w1.(i) <- 0l done;
+  (* No need to zero arrays - all positions will be overwritten *)
   for j = 0 to 15 do
-    w.(j) <- get_u32_be block (off + (j * 4))
+    Array.unsafe_set w j (get_u32_be block (off + (j * 4)))
   done;
   (* Precompute rotl_15 and rotl_7 for w expansion using local bindings *)
   for j = 16 to 67 do
-    let x = w.(j - 16) ^^ w.(j - 9) ^^ rotl (w.(j - 3)) 15 in
+    let x = (Array.unsafe_get w (j - 16)) ^^ (Array.unsafe_get w (j - 9)) ^^ rotl (Array.unsafe_get w (j - 3)) 15 in
     let y = p1 x in
-    w.(j) <- y ^^ rotl (w.(j - 13)) 7 ^^ w.(j - 6)
+    Array.unsafe_set w j (y ^^ rotl (Array.unsafe_get w (j - 13)) 7 ^^ Array.unsafe_get w (j - 6))
   done;
   for j = 0 to 63 do
-    w1.(j) <- w.(j) ^^ w.(j + 4)
+    Array.unsafe_set w1 j ((Array.unsafe_get w j) ^^ (Array.unsafe_get w (j + 4)))
   done;
-  let a = ref state.a
-  and b = ref state.b
-  and c = ref state.c
-  and d = ref state.d
-  and e = ref state.e
-  and f = ref state.f
-  and g = ref state.g
-  and h = ref state.h in
-  for j = 0 to 63 do
-    let t = t_array.(j) in
-    let a12 = rotl !a 12 in
-    let ss1 = rotl (a12 ++ !e ++ rotl t j) 7 in
-    let ss2 = ss1 ^^ a12 in
-    let tt1 =
-      if j < 16 then
-        (!a ^^ !b ^^ !c) ++ !d ++ ss2 ++ w1.(j)
-      else
-        ((!a &&& !b) ||| (!a &&& !c) ||| (!b &&& !c)) ++ !d ++ ss2 ++ w1.(j)
-    in
-    let tt2 =
-      if j < 16 then
-        (!e ^^ !f ^^ !g) ++ !h ++ ss1 ++ w.(j)
-      else
-        ((!e &&& !f) ||| (lnot !e &&& !g)) ++ !h ++ ss1 ++ w.(j)
-    in
-    d := !c;
-    c := rotl !b 9;
-    b := !a;
-    a := tt1;
-    h := !g;
-    g := rotl !f 19;
-    f := !e;
-    e := p0 tt2
-  done;
+  
+  (* Split into two loops for j = 0..15 and j = 16..63 to eliminate branch *)
+  let rec loop0 j a b c d e f g h =
+    if j >= 16 then
+      (a, b, c, d, e, f, g, h)
+    else
+      let t = 0x79CC4519l in  (* T_j for j < 16 *)
+      let a12 = rotl a 12 in
+      let ss1 = rotl (a12 ++ e ++ rotl t j) 7 in
+      let ss2 = ss1 ^^ a12 in
+      let tt1 = (a ^^ b ^^ c) ++ d ++ ss2 ++ (Array.unsafe_get w1 j) in
+      let tt2 = (e ^^ f ^^ g) ++ h ++ ss1 ++ (Array.unsafe_get w j) in
+      loop0 (j + 1) tt1 a (rotl b 9) c (p0 tt2) e (rotl f 19) g
+  in
+  
+  let rec loop1 j a b c d e f g h =
+    if j >= 64 then
+      (a, b, c, d, e, f, g, h)
+    else
+      let t = 0x7A879D8Al in  (* T_j for j >= 16 *)
+      let a12 = rotl a 12 in
+      let ss1 = rotl (a12 ++ e ++ rotl t j) 7 in
+      let ss2 = ss1 ^^ a12 in
+      let tt1 = ((a &&& b) ||| (a &&& c) ||| (b &&& c)) ++ d ++ ss2 ++ (Array.unsafe_get w1 j) in
+      let tt2 = ((e &&& f) ||| (lnot e &&& g)) ++ h ++ ss1 ++ (Array.unsafe_get w j) in
+      loop1 (j + 1) tt1 a (rotl b 9) c (p0 tt2) e (rotl f 19) g
+  in
+  
+  let a, b, c, d, e, f, g, h = loop0 0 state.a state.b state.c state.d state.e state.f state.g state.h in
+  let a, b, c, d, e, f, g, h = loop1 16 a b c d e f g h in
+  
   {
     state with
-    a = state.a ^^ !a;
-    b = state.b ^^ !b;
-    c = state.c ^^ !c;
-    d = state.d ^^ !d;
-    e = state.e ^^ !e;
-    f = state.f ^^ !f;
-    g = state.g ^^ !g;
-    h = state.h ^^ !h;
+    a = state.a ^^ a;
+    b = state.b ^^ b;
+    c = state.c ^^ c;
+    d = state.d ^^ d;
+    e = state.e ^^ e;
+    f = state.f ^^ f;
+    g = state.g ^^ g;
+    h = state.h ^^ h;
   }
 
 let process_bytes state src off len =
