@@ -44,6 +44,7 @@ let rotl x n =
   let n = n land 31 in
   if n = 0 then x
   else Int32.(logor (shift_left x n) (shift_right_logical x (32 - n)))
+  [@@inline always]
 
 let rotl_7 x = rotl x 7
 let rotl_9 x = rotl x 9
@@ -53,8 +54,8 @@ let rotl_17 x = rotl x 17
 let rotl_19 x = rotl x 19
 let rotl_23 x = rotl x 23
 
-let p0 x = x ^^ rotl_9 x ^^ rotl_17 x
-let p1 x = x ^^ rotl_15 x ^^ rotl_23 x
+let p0 x = x ^^ rotl_9 x ^^ rotl_17 x [@@inline always]
+let p1 x = x ^^ rotl_15 x ^^ rotl_23 x [@@inline always]
 
 let t_array =
   let arr = Array.make 64 0l in
@@ -62,15 +63,15 @@ let t_array =
   for j = 16 to 63 do arr.(j) <- 0x7A879D8Al done;
   arr
 
-let get_u32_be bytes off =
-  let open Int32 in
-  logor
-    (shift_left (of_int (Char.code (Bytes.get bytes off))) 24)
-    (logor
-       (shift_left (of_int (Char.code (Bytes.get bytes (off + 1)))) 16)
-       (logor
-          (shift_left (of_int (Char.code (Bytes.get bytes (off + 2)))) 8)
-          (of_int (Char.code (Bytes.get bytes (off + 3))))))
+let t_shifted_array =
+  let arr = Array.make 64 0l in
+  for j = 0 to 63 do
+    let t = if j < 16 then 0x79CC4519l else 0x7A879D8Al in
+    arr.(j) <- rotl t j
+  done;
+  arr
+
+let get_u32_be = Bytes.get_int32_be
 
 let set_u64_be bytes off x =
   let open Int64 in
@@ -105,9 +106,8 @@ let compress state block off =
     if j >= 16 then
       (a, b, c, d, e, f, g, h)
     else
-      let t = 0x79CC4519l in  (* T_j for j < 16 *)
       let a12 = rotl a 12 in
-      let ss1 = rotl (a12 ++ e ++ rotl t j) 7 in
+      let ss1 = rotl (a12 ++ e ++ Array.unsafe_get t_shifted_array j) 7 in
       let ss2 = ss1 ^^ a12 in
       let tt1 = (a ^^ b ^^ c) ++ d ++ ss2 ++ (Array.unsafe_get w1 j) in
       let tt2 = (e ^^ f ^^ g) ++ h ++ ss1 ++ (Array.unsafe_get w j) in
@@ -118,9 +118,8 @@ let compress state block off =
     if j >= 64 then
       (a, b, c, d, e, f, g, h)
     else
-      let t = 0x7A879D8Al in  (* T_j for j >= 16 *)
       let a12 = rotl a 12 in
-      let ss1 = rotl (a12 ++ e ++ rotl t j) 7 in
+      let ss1 = rotl (a12 ++ e ++ Array.unsafe_get t_shifted_array j) 7 in
       let ss2 = ss1 ^^ a12 in
       let tt1 = ((a &&& b) ||| (a &&& c) ||| (b &&& c)) ++ d ++ ss2 ++ (Array.unsafe_get w1 j) in
       let tt2 = ((e &&& f) ||| (lnot e &&& g)) ++ h ++ ss1 ++ (Array.unsafe_get w j) in
@@ -180,7 +179,7 @@ let store_u32_be bytes off x =
   Bytes.set bytes (off + 3) (Char.chr (to_int x land 0xff))
 
 let finalize state =
-  let bit_len = Int64.mul state.total_len 8L in
+  let bit_len = Int64.shift_left state.total_len 3 in
   let pad_zeros = if state.buffer_len < 56 then 55 - state.buffer_len else 119 - state.buffer_len in
   let final_block = Bytes.make (state.buffer_len + 1 + pad_zeros + 8) '\000' in
   Bytes.blit state.buffer 0 final_block 0 state.buffer_len;
