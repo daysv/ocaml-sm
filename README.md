@@ -13,8 +13,16 @@
 ## 构建与测试
 
 ```sh
-dune build @all
+opam install . --deps-only --with-test
+
+export OCAMLOPT_FLAGS="-O3 -unbox-closures -flambda -inline 1000"
+dune build
+
 dune runtest
+```
+
+```sh
+dune exec ./_build/default/bench/bench.exe 
 ```
 
 ## 快速示例
