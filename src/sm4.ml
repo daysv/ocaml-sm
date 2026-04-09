@@ -33,33 +33,28 @@ let ck =
 let rotl x n =
   let open Int32 in
   logor (shift_left x n) (shift_right_logical x (32 - n))
+  [@@inline always]
 
 let tau a =
   let open Int32 in
-  let byte idx = Array.get sbox (to_int (logand (shift_right_logical a (idx * 8)) 0xffl)) in
+  let byte idx = Array.unsafe_get sbox (to_int (logand (shift_right_logical a (idx * 8)) 0xffl)) in
   logor
     (shift_left (of_int (byte 3)) 24)
     (logor
        (shift_left (of_int (byte 2)) 16)
        (logor (shift_left (of_int (byte 1)) 8) (of_int (byte 0))))
+  [@@inline always]
 
 let l x =
   Int32.logxor x
     (Int32.logxor (rotl x 2) (Int32.logxor (rotl x 10) (Int32.logxor (rotl x 18) (rotl x 24))))
+  [@@inline always]
 
-let l' x = Int32.logxor x (Int32.logxor (rotl x 13) (rotl x 23))
-let t x = l (tau x)
-let t' x = l' (tau x)
+let l' x = Int32.logxor x (Int32.logxor (rotl x 13) (rotl x 23)) [@@inline always]
+let t x = l (tau x) [@@inline always]
+let t' x = l' (tau x) [@@inline always]
 
-let get_u32_be b off =
-  let open Int32 in
-  logor
-    (shift_left (of_int (Char.code (Bytes.get b off))) 24)
-    (logor
-       (shift_left (of_int (Char.code (Bytes.get b (off + 1)))) 16)
-       (logor
-          (shift_left (of_int (Char.code (Bytes.get b (off + 2)))) 8)
-          (of_int (Char.code (Bytes.get b (off + 3))))))
+let get_u32_be = Bytes.get_int32_be
 
 let set_u32_be b off x =
   let open Int32 in
@@ -73,16 +68,16 @@ let key_schedule key =
   let mk = Array.init 4 (fun i -> get_u32_be key (i * 4)) in
   let k = Array.make 36 0l in
   for i = 0 to 3 do
-    k.(i) <- Int32.logxor mk.(i) fk.(i)
+    Array.unsafe_set k i (Int32.logxor (Array.unsafe_get mk i) (Array.unsafe_get fk i))
   done;
   let rk = Array.make 32 0l in
   for i = 0 to 31 do
     let x =
-      Int32.logxor k.(i + 1)
-        (Int32.logxor k.(i + 2) (Int32.logxor k.(i + 3) ck.(i)))
+      Int32.logxor (Array.unsafe_get k (i + 1))
+        (Int32.logxor (Array.unsafe_get k (i + 2)) (Int32.logxor (Array.unsafe_get k (i + 3)) (Array.unsafe_get ck i)))
     in
-    k.(i + 4) <- Int32.logxor k.(i) (t' x);
-    rk.(i) <- k.(i + 4)
+    Array.unsafe_set k (i + 4) (Int32.logxor (Array.unsafe_get k i) (t' x));
+    Array.unsafe_set rk i (Array.unsafe_get k (i + 4))
   done;
   rk
 
@@ -90,21 +85,21 @@ let crypt_block rks block decrypt =
   if Bytes.length block <> 16 then invalid_arg "Sm4.crypt_block";
   let x = Array.make 36 0l in
   for i = 0 to 3 do
-    x.(i) <- get_u32_be block (i * 4)
+    Array.unsafe_set x i (get_u32_be block (i * 4))
   done;
   for i = 0 to 31 do
-    let rk = if decrypt then rks.(31 - i) else rks.(i) in
+    let rk = if decrypt then Array.unsafe_get rks (31 - i) else Array.unsafe_get rks i in
     let v =
-      Int32.logxor x.(i + 1)
-        (Int32.logxor x.(i + 2) (Int32.logxor x.(i + 3) rk))
+      Int32.logxor (Array.unsafe_get x (i + 1))
+        (Int32.logxor (Array.unsafe_get x (i + 2)) (Int32.logxor (Array.unsafe_get x (i + 3)) rk))
     in
-    x.(i + 4) <- Int32.logxor x.(i) (t v)
+    Array.unsafe_set x (i + 4) (Int32.logxor (Array.unsafe_get x i) (t v))
   done;
   let out = Bytes.create 16 in
-  set_u32_be out 0 x.(35);
-  set_u32_be out 4 x.(34);
-  set_u32_be out 8 x.(33);
-  set_u32_be out 12 x.(32);
+  set_u32_be out 0 (Array.unsafe_get x 35);
+  set_u32_be out 4 (Array.unsafe_get x 34);
+  set_u32_be out 8 (Array.unsafe_get x 33);
+  set_u32_be out 12 (Array.unsafe_get x 32);
   out
 
 let encrypt_block rks block = crypt_block rks block false
@@ -114,8 +109,9 @@ let decrypt_block_with_key key block = decrypt_block (key_schedule key) block
 
 let xor_block_into dst dst_off a a_off b b_off len =
   for i = 0 to len - 1 do
-    Bytes.set dst (dst_off + i) (Char.chr (Char.code (Bytes.get a (a_off + i)) lxor Char.code (Bytes.get b (b_off + i))))
+    Bytes.unsafe_set dst (dst_off + i) (Char.chr (Char.code (Bytes.unsafe_get a (a_off + i)) lxor Char.code (Bytes.unsafe_get b (b_off + i))))
   done
+  [@@inline always]
 
 let xor_bytes a b =
   let len = Bytes.length a in
@@ -125,6 +121,7 @@ let xor_bytes a b =
 
 let require_len who expected got =
   if got <> expected then invalid_arg who
+  [@@inline always]
 
 module Cbc = struct
   let encrypt_no_pad ~key ~iv plaintext =
