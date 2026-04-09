@@ -35,6 +35,30 @@ let rotl x n =
   logor (shift_left x n) (shift_right_logical x (32 - n))
   [@@inline always]
 
+(* Precomputed T-tables for fast encryption *)
+let t_table =
+  let open Int32 in
+  let t0 = Array.make 256 0l in
+  for i = 0 to 255 do
+    let s = Array.unsafe_get sbox i in
+    let x = of_int s in
+    let y =
+      let a = x in
+      let b = rotl a 2 in
+      let c = rotl a 10 in
+      let d = rotl a 18 in
+      let e = rotl a 24 in
+      logxor a (logxor b (logxor c (logxor d e)))
+    in
+    Array.unsafe_set t0 i y
+  done;
+  let t1 = Array.map (fun x -> rotl x 8) t0 in
+  let t2 = Array.map (fun x -> rotl x 16) t0 in
+  let t3 = Array.map (fun x -> rotl x 24) t0 in
+  (t0, t1, t2, t3)
+
+let t0, t1, t2, t3 = t_table
+
 let tau a =
   let open Int32 in
   let byte idx = Array.unsafe_get sbox (to_int (logand (shift_right_logical a (idx * 8)) 0xffl)) in
@@ -83,23 +107,32 @@ let key_schedule key =
 
 let crypt_block rks block decrypt =
   if Bytes.length block <> 16 then invalid_arg "Sm4.crypt_block";
-  let x = Array.make 36 0l in
-  for i = 0 to 3 do
-    Array.unsafe_set x i (get_u32_be block (i * 4))
-  done;
+  let open Int32 in
+  let x0 = ref (get_u32_be block 0) in
+  let x1 = ref (get_u32_be block 4) in
+  let x2 = ref (get_u32_be block 8) in
+  let x3 = ref (get_u32_be block 12) in
   for i = 0 to 31 do
     let rk = if decrypt then Array.unsafe_get rks (31 - i) else Array.unsafe_get rks i in
-    let v =
-      Int32.logxor (Array.unsafe_get x (i + 1))
-        (Int32.logxor (Array.unsafe_get x (i + 2)) (Int32.logxor (Array.unsafe_get x (i + 3)) rk))
-    in
-    Array.unsafe_set x (i + 4) (Int32.logxor (Array.unsafe_get x i) (t v))
+    let v = logxor (logxor !x1 !x2) (logxor !x3 rk) in
+    let b0 = to_int (logand v 0xffl) in
+    let b1 = to_int (logand (shift_right_logical v 8) 0xffl) in
+    let b2 = to_int (logand (shift_right_logical v 16) 0xffl) in
+    let b3 = to_int (logand (shift_right_logical v 24) 0xffl) in
+    let tx = logxor (Array.unsafe_get t0 b0)
+               (logxor (Array.unsafe_get t1 b1)
+                  (logxor (Array.unsafe_get t2 b2) (Array.unsafe_get t3 b3))) in
+    let nx = logxor !x0 tx in
+    x0 := !x1;
+    x1 := !x2;
+    x2 := !x3;
+    x3 := nx
   done;
   let out = Bytes.create 16 in
-  set_u32_be out 0 (Array.unsafe_get x 35);
-  set_u32_be out 4 (Array.unsafe_get x 34);
-  set_u32_be out 8 (Array.unsafe_get x 33);
-  set_u32_be out 12 (Array.unsafe_get x 32);
+  set_u32_be out 0 !x3;
+  set_u32_be out 4 !x2;
+  set_u32_be out 8 !x1;
+  set_u32_be out 12 !x0;
   out
 
 let encrypt_block rks block = crypt_block rks block false
