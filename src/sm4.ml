@@ -35,29 +35,25 @@ let rotl x n =
   logor (shift_left x n) (shift_right_logical x (32 - n))
   [@@inline always]
 
-(* Precomputed T-tables for fast encryption *)
-let t_table =
+(* Precomputed combined T-table for fast encryption *)
+let t_combined =
   let open Int32 in
-  let t0 = Array.make 256 0l in
+  let arr = Array.make (256 * 4) 0l in
   for i = 0 to 255 do
     let s = Array.unsafe_get sbox i in
     let x = of_int s in
-    let y =
-      let a = x in
-      let b = rotl a 2 in
-      let c = rotl a 10 in
-      let d = rotl a 18 in
-      let e = rotl a 24 in
-      logxor a (logxor b (logxor c (logxor d e)))
-    in
-    Array.unsafe_set t0 i y
+    let a = x in
+    let b = rotl a 2 in
+    let c = rotl a 10 in
+    let d = rotl a 18 in
+    let e = rotl a 24 in
+    let base = logxor a (logxor b (logxor c (logxor d e))) in
+    Array.unsafe_set arr i base;
+    Array.unsafe_set arr (i + 256) (rotl base 8);
+    Array.unsafe_set arr (i + 512) (rotl base 16);
+    Array.unsafe_set arr (i + 768) (rotl base 24)
   done;
-  let t1 = Array.map (fun x -> rotl x 8) t0 in
-  let t2 = Array.map (fun x -> rotl x 16) t0 in
-  let t3 = Array.map (fun x -> rotl x 24) t0 in
-  (t0, t1, t2, t3)
-
-let t0, t1, t2, t3 = t_table
+  arr
 
 let tau a =
   let open Int32 in
@@ -78,14 +74,20 @@ let l' x = Int32.logxor x (Int32.logxor (rotl x 13) (rotl x 23)) [@@inline alway
 let t x = l (tau x) [@@inline always]
 let t' x = l' (tau x) [@@inline always]
 
-let get_u32_be = Bytes.get_int32_be
+let get_u32_be b off =
+  let open Int32 in
+  let b0 = Int32.of_int (Char.code (Bytes.unsafe_get b off)) in
+  let b1 = Int32.of_int (Char.code (Bytes.unsafe_get b (off + 1))) in
+  let b2 = Int32.of_int (Char.code (Bytes.unsafe_get b (off + 2))) in
+  let b3 = Int32.of_int (Char.code (Bytes.unsafe_get b (off + 3))) in
+  logor (shift_left b0 24) (logor (shift_left b1 16) (logor (shift_left b2 8) b3))
 
 let set_u32_be b off x =
   let open Int32 in
-  Bytes.set b off (Char.chr (to_int (shift_right_logical x 24) land 0xff));
-  Bytes.set b (off + 1) (Char.chr (to_int (shift_right_logical x 16) land 0xff));
-  Bytes.set b (off + 2) (Char.chr (to_int (shift_right_logical x 8) land 0xff));
-  Bytes.set b (off + 3) (Char.chr (to_int x land 0xff))
+  Bytes.unsafe_set b off (Char.unsafe_chr (to_int (shift_right_logical x 24) land 0xff));
+  Bytes.unsafe_set b (off + 1) (Char.unsafe_chr (to_int (shift_right_logical x 16) land 0xff));
+  Bytes.unsafe_set b (off + 2) (Char.unsafe_chr (to_int (shift_right_logical x 8) land 0xff));
+  Bytes.unsafe_set b (off + 3) (Char.unsafe_chr (to_int x land 0xff))
 
 let key_schedule key =
   if Bytes.length key <> 16 then invalid_arg "Sm4.key_schedule";
@@ -112,22 +114,52 @@ let crypt_block rks block decrypt =
   let x1 = ref (get_u32_be block 4) in
   let x2 = ref (get_u32_be block 8) in
   let x3 = ref (get_u32_be block 12) in
-  for i = 0 to 31 do
-    let rk = if decrypt then Array.unsafe_get rks (31 - i) else Array.unsafe_get rks i in
-    let v = logxor (logxor !x1 !x2) (logxor !x3 rk) in
-    let b0 = to_int (logand v 0xffl) in
-    let b1 = to_int (logand (shift_right_logical v 8) 0xffl) in
-    let b2 = to_int (logand (shift_right_logical v 16) 0xffl) in
-    let b3 = to_int (logand (shift_right_logical v 24) 0xffl) in
-    let tx = logxor (Array.unsafe_get t0 b0)
-               (logxor (Array.unsafe_get t1 b1)
-                  (logxor (Array.unsafe_get t2 b2) (Array.unsafe_get t3 b3))) in
-    let nx = logxor !x0 tx in
-    x0 := !x1;
-    x1 := !x2;
-    x2 := !x3;
-    x3 := nx
-  done;
+  if decrypt then
+    for i = 31 downto 0 do
+      let rk = Array.unsafe_get rks i in
+      let v = logxor (logxor !x1 !x2) (logxor !x3 rk) in
+      let b0 = to_int (logand v 0xffl) in
+      let b1 = to_int (logand (shift_right_logical v 8) 0xffl) in
+      let b2 = to_int (logand (shift_right_logical v 16) 0xffl) in
+      let b3 = to_int (logand (shift_right_logical v 24) 0xffl) in
+      let tx =
+        logxor
+          (Array.unsafe_get t_combined b0)
+          (logxor
+             (Array.unsafe_get t_combined (b1 + 256))
+             (logxor
+                (Array.unsafe_get t_combined (b2 + 512))
+                (Array.unsafe_get t_combined (b3 + 768))))
+      in
+      let nx = logxor !x0 tx in
+      x0 := !x1;
+      x1 := !x2;
+      x2 := !x3;
+      x3 := nx
+    done
+  else
+    for i = 0 to 31 do
+      let rk = Array.unsafe_get rks i in
+      let v = logxor (logxor !x1 !x2) (logxor !x3 rk) in
+      let b0 = to_int (logand v 0xffl) in
+      let b1 = to_int (logand (shift_right_logical v 8) 0xffl) in
+      let b2 = to_int (logand (shift_right_logical v 16) 0xffl) in
+      let b3 = to_int (logand (shift_right_logical v 24) 0xffl) in
+      let tx =
+        logxor
+          (Array.unsafe_get t_combined b0)
+          (logxor
+             (Array.unsafe_get t_combined (b1 + 256))
+             (logxor
+                (Array.unsafe_get t_combined (b2 + 512))
+                (Array.unsafe_get t_combined (b3 + 768))))
+      in
+      let nx = logxor !x0 tx in
+      x0 := !x1;
+      x1 := !x2;
+      x2 := !x3;
+      x3 := nx
+    done;
   let out = Bytes.create 16 in
   set_u32_be out 0 !x3;
   set_u32_be out 4 !x2;
