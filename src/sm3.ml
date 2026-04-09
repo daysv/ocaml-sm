@@ -39,8 +39,16 @@ let rotl x n =
   if n = 0 then x
   else Int32.(logor (shift_left x n) (shift_right_logical x (32 - n)))
 
-let p0 x = x ^^ rotl x 9 ^^ rotl x 17
-let p1 x = x ^^ rotl x 15 ^^ rotl x 23
+let rotl_7 x = rotl x 7
+let rotl_9 x = rotl x 9
+let rotl_12 x = rotl x 12
+let rotl_15 x = rotl x 15
+let rotl_17 x = rotl x 17
+let rotl_19 x = rotl x 19
+let rotl_23 x = rotl x 23
+
+let p0 x = x ^^ rotl_9 x ^^ rotl_17 x
+let p1 x = x ^^ rotl_15 x ^^ rotl_23 x
 
 let ff j x y z =
   if j < 16 then x ^^ y ^^ z
@@ -51,6 +59,12 @@ let gg j x y z =
   else (x &&& y) ||| (lnot x &&& z)
 
 let tj j = if j < 16 then 0x79CC4519l else 0x7A879D8Al
+
+let t_array =
+  let arr = Array.make 64 0l in
+  for j = 0 to 15 do arr.(j) <- 0x79CC4519l done;
+  for j = 16 to 63 do arr.(j) <- 0x7A879D8Al done;
+  arr
 
 let get_u32_be bytes off =
   let open Int32 in
@@ -81,8 +95,8 @@ let compress state block off =
   done;
   for j = 16 to 67 do
     w.(j) <-
-      p1 (w.(j - 16) ^^ w.(j - 9) ^^ rotl w.(j - 3) 15)
-      ^^ rotl w.(j - 13) 7 ^^ w.(j - 6)
+      p1 (w.(j - 16) ^^ w.(j - 9) ^^ rotl_15 (w.(j - 3)))
+      ^^ rotl_7 (w.(j - 13)) ^^ w.(j - 6)
   done;
   for j = 0 to 63 do
     w1.(j) <- w.(j) ^^ w.(j + 4)
@@ -96,16 +110,18 @@ let compress state block off =
   and g = ref state.g
   and h = ref state.h in
   for j = 0 to 63 do
-    let ss1 = rotl ((rotl !a 12 ++ !e ++ rotl (tj j) j)) 7 in
-    let ss2 = ss1 ^^ rotl !a 12 in
+    let t = t_array.(j) in
+    let a12 = rotl_12 !a in
+    let ss1 = rotl (a12 ++ !e ++ rotl t j) 7 in
+    let ss2 = ss1 ^^ a12 in
     let tt1 = ff j !a !b !c ++ !d ++ ss2 ++ w1.(j) in
     let tt2 = gg j !e !f !g ++ !h ++ ss1 ++ w.(j) in
     d := !c;
-    c := rotl !b 9;
+    c := rotl_9 !b;
     b := !a;
     a := tt1;
     h := !g;
-    g := rotl !f 19;
+    g := rotl_19 !f;
     f := !e;
     e := p0 tt2
   done;
