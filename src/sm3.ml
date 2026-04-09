@@ -10,6 +10,8 @@ type t = {
   buffer : bytes;
   buffer_len : int;
   total_len : int64;
+  w : int32 array;
+  w1 : int32 array;
 }
 
 let iv =
@@ -24,7 +26,9 @@ let iv =
 
 let empty =
   let a, b, c, d, e, f, g, h = iv in
-  { a; b; c; d; e; f; g; h; buffer = Bytes.make 64 '\000'; buffer_len = 0; total_len = 0L }
+  let w = Array.make 68 0l in
+  let w1 = Array.make 64 0l in
+  { a; b; c; d; e; f; g; h; buffer = Bytes.make 64 '\000'; buffer_len = 0; total_len = 0L; w; w1 }
 
 let init () = empty
 
@@ -34,6 +38,8 @@ let ( &&& ) = Int32.logand
 let ( ||| ) = Int32.logor
 let lnot = Int32.lognot
 
+(* Inline these for performance - used directly in compress loop *)
+(* Keep as external for test compatibility, but will be inlined in compress *)
 let rotl x n =
   let n = n land 31 in
   if n = 0 then x
@@ -49,16 +55,6 @@ let rotl_23 x = rotl x 23
 
 let p0 x = x ^^ rotl_9 x ^^ rotl_17 x
 let p1 x = x ^^ rotl_15 x ^^ rotl_23 x
-
-let ff j x y z =
-  if j < 16 then x ^^ y ^^ z
-  else (x &&& y) ||| (x &&& z) ||| (y &&& z)
-
-let gg j x y z =
-  if j < 16 then x ^^ y ^^ z
-  else (x &&& y) ||| (lnot x &&& z)
-
-let tj j = if j < 16 then 0x79CC4519l else 0x7A879D8Al
 
 let t_array =
   let arr = Array.make 64 0l in
@@ -88,15 +84,19 @@ let set_u64_be bytes off x =
   Bytes.set bytes (off + 7) (Char.chr (to_int x land 0xff))
 
 let compress state block off =
-  let w = Array.make 68 0l in
-  let w1 = Array.make 64 0l in
+  let w = state.w in
+  let w1 = state.w1 in
+  (* Reset arrays to zero - necessary because arrays are reused *)
+  for i = 0 to 67 do w.(i) <- 0l done;
+  for i = 0 to 63 do w1.(i) <- 0l done;
   for j = 0 to 15 do
     w.(j) <- get_u32_be block (off + (j * 4))
   done;
+  (* Precompute rotl_15 and rotl_7 for w expansion using local bindings *)
   for j = 16 to 67 do
-    w.(j) <-
-      p1 (w.(j - 16) ^^ w.(j - 9) ^^ rotl_15 (w.(j - 3)))
-      ^^ rotl_7 (w.(j - 13)) ^^ w.(j - 6)
+    let x = w.(j - 16) ^^ w.(j - 9) ^^ rotl (w.(j - 3)) 15 in
+    let y = p1 x in
+    w.(j) <- y ^^ rotl (w.(j - 13)) 7 ^^ w.(j - 6)
   done;
   for j = 0 to 63 do
     w1.(j) <- w.(j) ^^ w.(j + 4)
@@ -111,17 +111,27 @@ let compress state block off =
   and h = ref state.h in
   for j = 0 to 63 do
     let t = t_array.(j) in
-    let a12 = rotl_12 !a in
+    let a12 = rotl !a 12 in
     let ss1 = rotl (a12 ++ !e ++ rotl t j) 7 in
     let ss2 = ss1 ^^ a12 in
-    let tt1 = ff j !a !b !c ++ !d ++ ss2 ++ w1.(j) in
-    let tt2 = gg j !e !f !g ++ !h ++ ss1 ++ w.(j) in
+    let tt1 =
+      if j < 16 then
+        (!a ^^ !b ^^ !c) ++ !d ++ ss2 ++ w1.(j)
+      else
+        ((!a &&& !b) ||| (!a &&& !c) ||| (!b &&& !c)) ++ !d ++ ss2 ++ w1.(j)
+    in
+    let tt2 =
+      if j < 16 then
+        (!e ^^ !f ^^ !g) ++ !h ++ ss1 ++ w.(j)
+      else
+        ((!e &&& !f) ||| (lnot !e &&& !g)) ++ !h ++ ss1 ++ w.(j)
+    in
     d := !c;
-    c := rotl_9 !b;
+    c := rotl !b 9;
     b := !a;
     a := tt1;
     h := !g;
-    g := rotl_19 !f;
+    g := rotl !f 19;
     f := !e;
     e := p0 tt2
   done;
@@ -144,6 +154,7 @@ let process_bytes state src off len =
   let state = ref state in
   let pos = ref off in
   let remaining = ref len in
+  (* Ensure w and w1 arrays are properly initialized for reuse *)
   if !remaining > 0 && !state.buffer_len > 0 then (
     let fill = min (64 - !state.buffer_len) !remaining in
     Bytes.blit src !pos !state.buffer !state.buffer_len fill;
