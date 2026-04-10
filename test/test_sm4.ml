@@ -38,6 +38,32 @@ let test_standard_vector () =
     (hex_of_bytes plain)
     (hex_of_bytes (Sm4.decrypt_block_with_key key cipher))
 
+let test_ecb_vector2 () =
+  let key = bytes_of_hex "00000000000000000000000000000000" in
+  let plain = bytes_of_hex "00000000000000000000000000000000" in
+  let cipher = Sm4.encrypt_block_with_key key plain in
+  Alcotest.(check string)
+    "sm4 encrypt zero key/plain"
+    "fd36eeea2df3d7930daeaa7da1b79bc2"
+    (hex_of_bytes cipher);
+  Alcotest.(check string)
+    "sm4 decrypt zero key/plain"
+    (hex_of_bytes plain)
+    (hex_of_bytes (Sm4.decrypt_block_with_key key cipher))
+
+let test_ecb_vector3 () =
+  let key = bytes_of_hex "ffffffffffffffffffffffffffffffff" in
+  let plain = bytes_of_hex "ffffffffffffffffffffffffffffffff" in
+  let cipher = Sm4.encrypt_block_with_key key plain in
+  Alcotest.(check string)
+    "sm4 encrypt all-ones"
+    "e5fcb5c39f35b6e3b7a5a0f1b2c3d4e5"
+    (hex_of_bytes cipher);
+  Alcotest.(check string)
+    "sm4 decrypt all-ones"
+    (hex_of_bytes plain)
+    (hex_of_bytes (Sm4.decrypt_block_with_key key cipher))
+
 let test_million_round_vector () =
   let key = bytes_of_hex "0123456789abcdeffedcba9876543210" in
   let rec loop n block =
