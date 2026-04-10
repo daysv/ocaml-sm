@@ -171,19 +171,21 @@ let mul_raw a b =
     for j = 0 to limbs - 1 do
       let k = i + j in
       let prod = Int64.mul ai b.(j) in
-      let sum = Int64.add (Int64.add out.(k) (Int64.logand prod mask)) !carry in
+      let lo = Int64.logand prod mask in
+      let hi = Int64.shift_right_logical prod 32 in
+      let sum = Int64.add (Int64.add out.(k) lo) !carry in
       out.(k) <- Int64.logand sum mask;
-      carry := Int64.add (Int64.shift_right_logical prod 32) (Int64.shift_right_logical sum 32)
+      carry := Int64.add hi (Int64.shift_right_logical sum 32)
     done;
-    let rec propagate k c =
-      if Int64.compare c 0L <> 0 then (
-        if k >= prod_limbs then invalid_arg "U256.mul_raw";
-        let sum = Int64.add out.(k) c in
-        out.(k) <- Int64.logand sum mask;
-        propagate (k + 1) (Int64.shift_right_logical sum 32)
-      )
-    in
-    propagate (i + limbs) !carry
+    let c = ref !carry in
+    let k = ref (i + limbs) in
+    while Int64.compare !c 0L <> 0 do
+      if !k >= prod_limbs then invalid_arg "U256.mul_raw";
+      let sum = Int64.add out.(!k) !c in
+      out.(!k) <- Int64.logand sum mask;
+      c := Int64.shift_right_logical sum 32;
+      incr k
+    done
   done;
   out
 
