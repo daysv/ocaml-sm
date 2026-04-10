@@ -246,6 +246,26 @@ let point_add p1 p2 =
 let point_add_j_affine j1 p2 =
   point_of_jacobian (point_add_mixed j1 p2)
 
+let validate_public_key ?(check_order = false) point =
+  match point with
+  | Infinity -> false
+  | Point (x, y) ->
+      (* Check coordinates are in range [0, p-1] *)
+      if U256.compare x p >= 0 || U256.compare y p >= 0 then false
+      else
+        (* Check curve equation: y^2 = x^3 + a*x + b (mod p) *)
+        let x3 = mod_mul x (mod_sqr x p) p in
+        let ax = mod_mul a x p in
+        let left = mod_sqr y p in
+        let right = mod_add (mod_add x3 ax p) b p in
+        if not (U256.equal left right) then false
+        else if not check_order then true
+        else
+          (* Check point order: [n]P = O *)
+          let table = precompute_window_width 4 point in
+          let result = scalar_mult_with_table_jacobian ~width:4 table n in
+          result.inf
+
 let point_to_bytes = function
   | Infinity -> invalid_arg "Sm2.point_to_bytes"
   | Point (x, y) -> (U256.to_bytes_be x, U256.to_bytes_be y)
@@ -335,6 +355,10 @@ let verify_digest ~pub ~digest ~signature =
           U256.equal rr r
 
 let kdf z klen =
+  if klen < 0 then invalid_arg "Sm2.kdf: klen must be non-negative";
+  (* GM/T 0003.4-2012: maximum derived key length is (2^32 - 1) * 32 bytes *)
+  if klen > (Int64.to_int (Int64.sub (Int64.shift_left 1L 32) 1L)) * 32 then
+    invalid_arg "Sm2.kdf: klen exceeds maximum allowed (2^32 - 1) * 32";
   let blocks = if klen = 0 then 0 else (klen + 31) / 32 in
   let out = Bytes.create klen in
   let z_len = String.length z in

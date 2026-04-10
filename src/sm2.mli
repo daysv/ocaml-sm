@@ -63,3 +63,12 @@ val decode_private_key_encrypted_pem : password:string -> string -> private_key 
 
 val encode_public_key_pem : point -> string
 val decode_public_key_pem : string -> point option
+
+(** Validate a public key point according to GM/T 0003.1-2012.
+    Checks that the point is not at infinity, coordinates are in range [0, p-1],
+    and satisfy the curve equation y^2 = x^3 + a*x + b (mod p).
+    Optionally performs the expensive order check [n]P = O if [check_order] is true.
+    @param point public key point to validate
+    @param check_order if true, also verify that the point has order n (default false)
+    @return true if the point is a valid public key *)
+val validate_public_key : ?check_order:bool -> point -> bool

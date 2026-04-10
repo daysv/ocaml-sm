@@ -184,3 +184,44 @@ let digest_bytes b =
   finalize (update_bytes (init ()) b)
 
 let digest_hex s = to_hex (digest_string s)
+
+(* HMAC-SM3 *)
+let hmac ~key data =
+  let block_size = 64 in
+  let key =
+    if String.length key > block_size then digest_string key else key
+  in
+  let key = key ^ String.make (block_size - String.length key) '\000' in
+  let ipad = Bytes.make block_size '\x36' in
+  let opad = Bytes.make block_size '\x5c' in
+  for i = 0 to block_size - 1 do
+    let k = Char.code key.[i] in
+    Bytes.set ipad i (Char.chr (k lxor Char.code (Bytes.get ipad i)));
+    Bytes.set opad i (Char.chr (k lxor Char.code (Bytes.get opad i)))
+  done;
+  let inner = digest_string (Bytes.unsafe_to_string ipad ^ data) in
+  digest_string (Bytes.unsafe_to_string opad ^ inner)
+
+let hmac_hex ~key data = to_hex (hmac ~key data)
+
+(* KDF based on SM3, as specified in GM/T 0003.4-2012 *)
+let kdf ~z ~klen =
+  if klen < 0 then invalid_arg "Sm3.kdf: klen must be non-negative";
+  (* GM/T 0003.4-2012 specifies maximum derived key length is (2^32 - 1) * 32 bytes *)
+  if klen > (Int64.to_int (Int64.sub (Int64.shift_left 1L 32) 1L)) * 32 then
+    invalid_arg "Sm3.kdf: klen exceeds maximum allowed (2^32 - 1) * 32";
+  let blocks = if klen = 0 then 0 else (klen + 31) / 32 in
+  let out = Bytes.create klen in
+  let z_len = String.length z in
+  for ct = 1 to blocks do
+    let block_bytes = Bytes.create (z_len + 4) in
+    Bytes.blit_string z 0 block_bytes 0 z_len;
+    Bytes.set block_bytes z_len (Char.chr ((ct lsr 24) land 0xff));
+    Bytes.set block_bytes (z_len + 1) (Char.chr ((ct lsr 16) land 0xff));
+    Bytes.set block_bytes (z_len + 2) (Char.chr ((ct lsr 8) land 0xff));
+    Bytes.set block_bytes (z_len + 3) (Char.chr (ct land 0xff));
+    let block = digest_bytes block_bytes in
+    let take = min 32 (klen - ((ct - 1) * 32)) in
+    Bytes.blit_string block 0 out ((ct - 1) * 32) take
+  done;
+  Bytes.unsafe_to_string out
