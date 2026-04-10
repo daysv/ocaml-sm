@@ -1,12 +1,31 @@
 0.1.1
 =====
 
-* SM2: Performance optimization
-  - Refactor U256 type to use int array for better performance
-  - Optimize arithmetic operations
+* SM2: Performance optimization and feature enhancements
+  - Refactor U256 type to use int array for better performance (46ef62a)
+  - Optimize U256 multiplication and arithmetic operations (83bef73)
+  - Add double_mod function and Jacobian coordinates for scalar multiplication (dadc0e6, 2c3d584)
+  - Implement SM2 public key verification (eda9043)
+
+* SM3: Performance optimization and refactoring
+  - Refactor state structure with w and w1 arrays for improved compression (dd6d2f9)
+  - Optimize rotation functions and compression logic (3234313, 685c912)
+  - Eliminate unnecessary array resets and restructure loops (04b5eaf)
+  - Streamline initialization and update functions (6f146e8)
+
+* SM4: Performance optimization
+  - Implement precomputed T-tables for encryption (036dd65, 0cb2c9c)
+  - Use unsafe array access and inline annotations for performance (f02b876)
 
 * ZUC: Code consistency improvements
   - Optimize add31 and sbox_word functions to use Int32
+
+* Additional changes
+  - Add more test cases for SM3, SM4 and ZUC algorithms (fd3cb59)
+  - Implement SM3 HMAC and KDF (eda9043)
+  - Add benchmark module for SM3/SM4/SM2 performance testing (ab31bb3)
+  - Update CI workflow for 32-bit system compatibility (d9fea9f)
+  - Update documentation and version to 0.1.1 (62bacdb, f34acc1)
 
 0.1.0
 =====

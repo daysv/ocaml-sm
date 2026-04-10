@@ -19,6 +19,11 @@ let check_subbytes () =
 let suite =
   [
     ("sm3", [
+         Alcotest.test_case "empty string" `Quick (fun () ->
+             check_hex
+               "empty"
+               ""
+               "1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b");
          Alcotest.test_case "abc vector" `Quick (fun () ->
              check_hex
                "abc"
@@ -29,6 +34,11 @@ let suite =
                "abcd x16"
                "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd"
                "debe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732");
+         Alcotest.test_case "long message (512 bits)" `Quick (fun () ->
+             check_hex
+               "64 zeros"
+               "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+               "46b58571be41685c253194d20ec7f82b659cc8c6b753f26d4e9ec85bc91c231e");
          Alcotest.test_case "empty input shape" `Quick (fun () ->
              Alcotest.(check int) "digest length" 64 (String.length (Sm3.digest_hex "")));
          Alcotest.test_case "incremental update" `Quick check_incremental;

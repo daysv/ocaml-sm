@@ -21,6 +21,21 @@ let test_zero_vector () =
   Alcotest.(check string) "word0" "27bede74" (hex_of_int32 ks.(0));
   Alcotest.(check string) "word1" "018082da" (hex_of_int32 ks.(1))
 
+let test_zero_vector_long () =
+  let key = Bytes.make 16 '\000' in
+  let iv = Bytes.make 16 '\000' in
+  let z = Zuc.init ~key ~iv in
+  let ks = Zuc.keystream_words z 16 in
+  let expected = [
+    "27bede74"; "018082da"; "87d4e5b6"; "9f18bf66";
+    "32070e0f"; "39b7b692"; "b4673edc"; "3184a48e";
+    "27636f44"; "14510d62"; "cc15cfe1"; "94ec4f6d";
+    "4b8c8fcc"; "630648ba"; "df41b6f9"; "d16a36ca"
+  ] in
+  List.iteri (fun i exp ->
+    Alcotest.(check string) ("word" ^ string_of_int i) exp (hex_of_int32 ks.(i))
+  ) expected
+
 let test_ff_vector () =
   let key = Bytes.make 16 '\255' in
   let iv = Bytes.make 16 '\255' in
@@ -28,6 +43,31 @@ let test_ff_vector () =
   let ks = Zuc.keystream_words z 2 in
   Alcotest.(check string) "word0" "0657cfa0" (hex_of_int32 ks.(0));
   Alcotest.(check string) "word1" "7096398b" (hex_of_int32 ks.(1))
+
+let test_ff_vector_long () =
+  let key = Bytes.make 16 '\255' in
+  let iv = Bytes.make 16 '\255' in
+  let z = Zuc.init ~key ~iv in
+  let ks = Zuc.keystream_words z 16 in
+  let expected = [
+    "0657cfa0"; "7096398b"; "734b6cb4"; "883eedf4";
+    "257a76eb"; "97595208"; "d884adcd"; "b1cbffb8";
+    "e0f9d158"; "46a0eed0"; "15328503"; "351138f7";
+    "40d079af"; "17296c23"; "2c4f022d"; "6e4acac6"
+  ] in
+  List.iteri (fun i exp ->
+    Alcotest.(check string) ("word" ^ string_of_int i) exp (hex_of_int32 ks.(i))
+  ) expected
+
+let test_custom_vector () =
+  let key = bytes_of_hex "00112233445566778899aabbccddeeff" in
+  let iv = bytes_of_hex "ffeeddccbbaa99887766554433221100" in
+  let z = Zuc.init ~key ~iv in
+  let ks = Zuc.keystream_words z 4 in
+  Alcotest.(check string) "word0" "deeb81e3" (hex_of_int32 ks.(0));
+  Alcotest.(check string) "word1" "88e6bbad" (hex_of_int32 ks.(1));
+  Alcotest.(check string) "word2" "1c44b2bb" (hex_of_int32 ks.(2));
+  Alcotest.(check string) "word3" "f5677664" (hex_of_int32 ks.(3))
 
 let test_crypt_roundtrip () =
   let key = bytes_of_hex "00112233445566778899aabbccddeeff" in
@@ -42,7 +82,10 @@ let () =
     [
       ("zuc", [
            Alcotest.test_case "zero vector" `Quick test_zero_vector;
+           Alcotest.test_case "zero vector long" `Quick test_zero_vector_long;
            Alcotest.test_case "ff vector" `Quick test_ff_vector;
+           Alcotest.test_case "ff vector long" `Quick test_ff_vector_long;
+           Alcotest.test_case "custom vector" `Quick test_custom_vector;
            Alcotest.test_case "crypt roundtrip" `Quick test_crypt_roundtrip;
          ]);
     ]
