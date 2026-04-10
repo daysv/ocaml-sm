@@ -152,14 +152,6 @@ let point_add_mixed j = function
 let select_jacobian table idx =
   Array.unsafe_get table idx
 
-let precompute_window point =
-  let table = Array.make 16 point_at_infinity in
-  table.(1) <- jacobian_of_point point;
-  for i = 2 to 15 do
-    table.(i) <- point_add_jacobian table.(i - 1) table.(1)
-  done;
-  table
-
 let window_of_scalar k shift width =
   if width = 4 then U256.get_nibble k shift
   else
@@ -170,7 +162,7 @@ let window_of_scalar k shift width =
     done;
     !acc
 
-let scalar_mult_with_table ~width table k =
+let scalar_mult_with_table_jacobian ~width table k =
   let acc = ref point_at_infinity in
   let first = ref true in
   let windows = (256 + width - 1) / width in
@@ -184,7 +176,10 @@ let scalar_mult_with_table ~width table k =
     let digit = window_of_scalar k (window * width) width in
     if digit <> 0 then acc := point_add_jacobian !acc (select_jacobian table digit)
   done;
-  point_of_jacobian !acc
+  !acc
+
+let scalar_mult_with_table ~width table k =
+  point_of_jacobian (scalar_mult_with_table_jacobian ~width table k)
 
 let precompute_window_width width point =
   let size = 1 lsl width in
@@ -195,11 +190,47 @@ let precompute_window_width width point =
   done;
   table
 
-let g_table = precompute_window_width 5 g
+let g_table_affine =
+  let table = precompute_window_width 5 g in
+  Array.map point_of_jacobian table
 
-let scalar_mult_g k = scalar_mult_with_table ~width:5 g_table k
+let scalar_mult_g_jacobian k =
+  let acc = ref point_at_infinity in
+  let first = ref true in
+  let width = 5 in
+  let windows = (256 + width - 1) / width in
+  for window = windows - 1 downto 0 do
+    if !first then first := false
+    else (
+      for _ = 1 to width do
+        acc := point_double !acc
+      done
+    );
+    let digit = window_of_scalar k (window * width) width in
+    if digit <> 0 then acc := point_add_mixed !acc (Array.unsafe_get g_table_affine digit)
+  done;
+  !acc
 
-let scalar_mult k point = scalar_mult_with_table ~width:5 (precompute_window_width 5 point) k
+let scalar_mult_g k = point_of_jacobian (scalar_mult_g_jacobian k)
+
+let scalar_mult_jacobian k point =
+  scalar_mult_with_table_jacobian ~width:5 (precompute_window_width 5 point) k
+
+let scalar_mult k point = point_of_jacobian (scalar_mult_jacobian k point)
+
+let scalar_mult_simultaneous_jacobian s t pub =
+  let p_table = precompute_window_width 4 pub in
+  let acc = ref point_at_infinity in
+  for i = 63 downto 0 do
+    for _ = 1 to 4 do
+      acc := point_double !acc
+    done;
+    let g_digit = window_of_scalar s (i * 4) 4 in
+    if g_digit <> 0 then acc := point_add_mixed !acc (Array.unsafe_get g_table_affine g_digit);
+    let p_digit = window_of_scalar t (i * 4) 4 in
+    if p_digit <> 0 then acc := point_add_jacobian !acc (Array.unsafe_get p_table p_digit)
+  done;
+  !acc
 
 let derive_public_key d = scalar_mult_g d
 let private_key_of_scalar private_scalar = { private_scalar; public_point = derive_public_key private_scalar }
@@ -211,6 +242,9 @@ let point_add p1 p2 =
   | Point _ ->
       let j = jacobian_of_point p1 in
       point_of_jacobian (point_add_mixed j p2)
+
+let point_add_j_affine j1 p2 =
+  point_of_jacobian (point_add_mixed j1 p2)
 
 let point_to_bytes = function
   | Infinity -> invalid_arg "Sm2.point_to_bytes"
@@ -271,7 +305,7 @@ let sign_digest ~k ~priv ~digest =
   ensure_valid_nonce k;
   let e = digest_to_scalar digest in
   let x1, _ =
-    match scalar_mult_g k with
+    match scalar_mult_g_jacobian k |> point_of_jacobian with
     | Infinity -> invalid_arg "Sm2.sign_digest"
     | Point (x, y) -> (x, y)
   in
@@ -294,9 +328,7 @@ let verify_digest ~pub ~digest ~signature =
     let t = mod_add r s n in
     if U256.is_zero t then false
     else
-      let sg = scalar_mult_g s in
-      let tp = scalar_mult t pub in
-      match point_add sg tp with
+      match scalar_mult_simultaneous_jacobian s t pub |> point_of_jacobian with
       | Infinity -> false
       | Point (x1, _) ->
           let rr = mod_add e x1 n in
@@ -337,7 +369,7 @@ let encrypt ~k ~pub msg =
   ensure_valid_nonce k;
   let c1 = scalar_mult_g k in
   let x2, y2 =
-    match scalar_mult k pub with
+    match scalar_mult_jacobian k pub |> point_of_jacobian with
     | Infinity -> invalid_arg "Sm2.encrypt"
     | Point (x, y) -> (x, y)
   in
@@ -357,7 +389,7 @@ let decrypt ~priv cipher =
     let c1 = parse_point bytes 0 in
     let c3 = Bytes.sub_string bytes 65 32 in
     let c2 = Bytes.sub_string bytes 97 (Bytes.length bytes - 97) in
-    match scalar_mult priv c1 with
+    match scalar_mult_jacobian priv c1 |> point_of_jacobian with
     | Infinity -> None
     | Point (x2, y2) ->
         let xb = U256.to_bytes_be x2 in
